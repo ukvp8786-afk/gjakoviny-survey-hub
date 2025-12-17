@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -46,22 +46,51 @@ export function QuestionFormDialog({
 }: QuestionFormDialogProps) {
   const [saving, setSaving] = useState(false);
   const [formData, setFormData] = useState<Omit<Question, "id">>({
-    question_text: question?.question_text || "",
-    question_type: question?.question_type || "radio",
-    options: question?.options || ["Možnost 1", "Možnost 2"],
-    is_required: question?.is_required ?? true,
-    order_index: question?.order_index ?? nextOrderIndex,
+    question_text: "",
+    question_type: "radio",
+    options: ["Možnost 1", "Možnost 2"],
+    is_required: true,
+    order_index: nextOrderIndex,
   });
 
-  const [optionsList, setOptionsList] = useState<string[]>(
-    Array.isArray(question?.options) ? question.options : ["Možnost 1", "Možnost 2"]
-  );
-  const [scaleMin, setScaleMin] = useState(
-    (question?.options as { min: number; max: number })?.min || 1
-  );
-  const [scaleMax, setScaleMax] = useState(
-    (question?.options as { min: number; max: number })?.max || 10
-  );
+  const [optionsList, setOptionsList] = useState<string[]>(["Možnost 1", "Možnost 2"]);
+  const [scaleMin, setScaleMin] = useState(1);
+  const [scaleMax, setScaleMax] = useState(10);
+
+  // Reset form when question changes or dialog opens
+  useEffect(() => {
+    if (open) {
+      if (question) {
+        setFormData({
+          question_text: question.question_text,
+          question_type: question.question_type,
+          options: question.options,
+          is_required: question.is_required,
+          order_index: question.order_index,
+        });
+        if (Array.isArray(question.options)) {
+          setOptionsList(question.options);
+        } else if (question.question_type === "scale" && question.options) {
+          const scaleOpts = question.options as { min: number; max: number };
+          setScaleMin(scaleOpts.min || 1);
+          setScaleMax(scaleOpts.max || 10);
+        } else {
+          setOptionsList(["Možnost 1", "Možnost 2"]);
+        }
+      } else {
+        setFormData({
+          question_text: "",
+          question_type: "radio",
+          options: ["Možnost 1", "Možnost 2"],
+          is_required: true,
+          order_index: nextOrderIndex,
+        });
+        setOptionsList(["Možnost 1", "Možnost 2"]);
+        setScaleMin(1);
+        setScaleMax(10);
+      }
+    }
+  }, [open, question, nextOrderIndex]);
 
   const handleTypeChange = (type: Question["question_type"]) => {
     setFormData({ ...formData, question_type: type });
