@@ -6,16 +6,29 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 import { 
   Newspaper, LogOut, Users, MessageSquare, BarChart3, 
-  Loader2, Star, ChevronDown, ChevronUp 
+  Loader2, Star, ChevronDown, ChevronUp, Plus, Pencil, Trash2, Settings
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { QuestionFormDialog } from "@/components/admin/QuestionFormDialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface Question {
   id: string;
   question_text: string;
-  question_type: string;
+  question_type: "radio" | "checkbox" | "text" | "rating" | "scale";
   options: string[] | { min: number; max: number } | null;
   order_index: number;
+  is_required: boolean;
 }
 
 interface Answer {
@@ -38,6 +51,12 @@ export default function AdminDashboard() {
   const [responses, setResponses] = useState<ResponseData[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedQuestion, setExpandedQuestion] = useState<string | null>(null);
+  
+  // Question management state
+  const [formDialogOpen, setFormDialogOpen] = useState(false);
+  const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [questionToDelete, setQuestionToDelete] = useState<Question | null>(null);
 
   useEffect(() => {
     // Check auth
@@ -64,6 +83,7 @@ export default function AdminDashboard() {
 
       const parsedQuestions = questionsRes.data?.map((q) => ({
         ...q,
+        question_type: q.question_type as Question["question_type"],
         options: q.options ? (typeof q.options === 'string' ? JSON.parse(q.options) : q.options) : null,
       })) || [];
 
@@ -81,6 +101,80 @@ export default function AdminDashboard() {
   const handleLogout = () => {
     sessionStorage.removeItem("gjak_admin_auth");
     navigate("/admin");
+  };
+
+  const handleAddQuestion = () => {
+    setEditingQuestion(null);
+    setFormDialogOpen(true);
+  };
+
+  const handleEditQuestion = (question: Question) => {
+    setEditingQuestion(question);
+    setFormDialogOpen(true);
+  };
+
+  const handleDeleteClick = (question: Question) => {
+    setQuestionToDelete(question);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleSaveQuestion = async (questionData: Omit<Question, "id">) => {
+    try {
+      if (editingQuestion) {
+        // Update existing
+        const { error } = await supabase
+          .from("questions")
+          .update({
+            question_text: questionData.question_text,
+            question_type: questionData.question_type,
+            options: questionData.options,
+            is_required: questionData.is_required,
+            order_index: questionData.order_index,
+          })
+          .eq("id", editingQuestion.id);
+
+        if (error) throw error;
+        toast.success("Otázka byla aktualizována");
+      } else {
+        // Create new
+        const { error } = await supabase.from("questions").insert({
+          question_text: questionData.question_text,
+          question_type: questionData.question_type,
+          options: questionData.options,
+          is_required: questionData.is_required,
+          order_index: questionData.order_index,
+        });
+
+        if (error) throw error;
+        toast.success("Otázka byla vytvořena");
+      }
+
+      fetchData();
+    } catch (error) {
+      console.error("Error saving question:", error);
+      toast.error("Nepodařilo se uložit otázku");
+    }
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!questionToDelete) return;
+
+    try {
+      const { error } = await supabase
+        .from("questions")
+        .delete()
+        .eq("id", questionToDelete.id);
+
+      if (error) throw error;
+      toast.success("Otázka byla smazána");
+      fetchData();
+    } catch (error) {
+      console.error("Error deleting question:", error);
+      toast.error("Nepodařilo se smazat otázku");
+    } finally {
+      setDeleteDialogOpen(false);
+      setQuestionToDelete(null);
+    }
   };
 
   const getAnswersForQuestion = (questionId: string) => {
@@ -232,6 +326,17 @@ export default function AdminDashboard() {
     return null;
   };
 
+  const getQuestionTypeLabel = (type: Question["question_type"]) => {
+    const labels = {
+      radio: "Jedna odpověď",
+      checkbox: "Více odpovědí",
+      text: "Text",
+      rating: "Hodnocení",
+      scale: "Škála",
+    };
+    return labels[type] || type;
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -297,45 +402,151 @@ export default function AdminDashboard() {
           </Card>
         </div>
 
-        {/* Questions Results */}
-        <h2 className="font-display text-2xl font-bold text-foreground mb-6">Výsledky otázek</h2>
-        <div className="space-y-4">
-          {questions.map((question, index) => {
-            const isExpanded = expandedQuestion === question.id;
-            return (
-              <Card key={question.id} className="shadow-soft border-0 overflow-hidden">
-                <button
-                  onClick={() => setExpandedQuestion(isExpanded ? null : question.id)}
-                  className="w-full text-left"
-                >
-                  <CardHeader className="flex flex-row items-center justify-between p-6 hover:bg-secondary/30 transition-colors">
-                    <div className="flex items-center gap-3">
-                      <span className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/10 text-primary text-sm font-semibold">
-                        {index + 1}
-                      </span>
-                      <CardTitle className="font-display text-lg font-medium">
-                        {question.question_text}
-                      </CardTitle>
-                    </div>
-                    {isExpanded ? (
-                      <ChevronUp className="w-5 h-5 text-muted-foreground" />
-                    ) : (
-                      <ChevronDown className="w-5 h-5 text-muted-foreground" />
+        {/* Tabs */}
+        <Tabs defaultValue="results" className="space-y-6">
+          <TabsList className="grid w-full grid-cols-2 max-w-md">
+            <TabsTrigger value="results" className="gap-2">
+              <BarChart3 className="w-4 h-4" />
+              Výsledky
+            </TabsTrigger>
+            <TabsTrigger value="manage" className="gap-2">
+              <Settings className="w-4 h-4" />
+              Správa otázek
+            </TabsTrigger>
+          </TabsList>
+
+          {/* Results Tab */}
+          <TabsContent value="results" className="space-y-4">
+            <h2 className="font-display text-2xl font-bold text-foreground">Výsledky otázek</h2>
+            <div className="space-y-4">
+              {questions.map((question, index) => {
+                const isExpanded = expandedQuestion === question.id;
+                return (
+                  <Card key={question.id} className="shadow-soft border-0 overflow-hidden">
+                    <button
+                      onClick={() => setExpandedQuestion(isExpanded ? null : question.id)}
+                      className="w-full text-left"
+                    >
+                      <CardHeader className="flex flex-row items-center justify-between p-6 hover:bg-secondary/30 transition-colors">
+                        <div className="flex items-center gap-3">
+                          <span className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/10 text-primary text-sm font-semibold">
+                            {index + 1}
+                          </span>
+                          <CardTitle className="font-display text-lg font-medium">
+                            {question.question_text}
+                          </CardTitle>
+                        </div>
+                        {isExpanded ? (
+                          <ChevronUp className="w-5 h-5 text-muted-foreground" />
+                        ) : (
+                          <ChevronDown className="w-5 h-5 text-muted-foreground" />
+                        )}
+                      </CardHeader>
+                    </button>
+                    {isExpanded && (
+                      <CardContent className="px-6 pb-6 pt-0">
+                        <div className="ml-11">
+                          {renderStats(question)}
+                        </div>
+                      </CardContent>
                     )}
-                  </CardHeader>
-                </button>
-                {isExpanded && (
-                  <CardContent className="px-6 pb-6 pt-0">
-                    <div className="ml-11">
-                      {renderStats(question)}
+                  </Card>
+                );
+              })}
+            </div>
+          </TabsContent>
+
+          {/* Manage Questions Tab */}
+          <TabsContent value="manage" className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="font-display text-2xl font-bold text-foreground">Správa otázek</h2>
+              <Button variant="hero" onClick={handleAddQuestion}>
+                <Plus className="w-4 h-4" />
+                Nová otázka
+              </Button>
+            </div>
+
+            <div className="space-y-3">
+              {questions.map((question, index) => (
+                <Card key={question.id} className="shadow-soft border-0">
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex items-start gap-3 flex-1">
+                        <span className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/10 text-primary text-sm font-semibold shrink-0 mt-0.5">
+                          {index + 1}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-display text-base font-medium text-foreground mb-1">
+                            {question.question_text}
+                            {question.is_required && (
+                              <span className="text-destructive ml-1">*</span>
+                            )}
+                          </h3>
+                          <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground font-body">
+                            <span className="px-2 py-0.5 bg-secondary rounded-md">
+                              {getQuestionTypeLabel(question.question_type)}
+                            </span>
+                            <span>Pořadí: {question.order_index}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleEditQuestion(question)}
+                          className="text-muted-foreground hover:text-primary"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDeleteClick(question)}
+                          className="text-muted-foreground hover:text-destructive"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
                     </div>
                   </CardContent>
-                )}
-              </Card>
-            );
-          })}
-        </div>
+                </Card>
+              ))}
+            </div>
+          </TabsContent>
+        </Tabs>
       </div>
+
+      {/* Question Form Dialog */}
+      <QuestionFormDialog
+        open={formDialogOpen}
+        onOpenChange={setFormDialogOpen}
+        onSave={handleSaveQuestion}
+        question={editingQuestion}
+        nextOrderIndex={questions.length + 1}
+      />
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="font-display">Smazat otázku?</AlertDialogTitle>
+            <AlertDialogDescription className="font-body">
+              Opravdu chceš smazat otázku "{questionToDelete?.question_text}"? 
+              Tato akce je nevratná a smaže také všechny odpovědi na tuto otázku.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="font-body">Zrušit</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteConfirm}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 font-body"
+            >
+              Smazat
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
